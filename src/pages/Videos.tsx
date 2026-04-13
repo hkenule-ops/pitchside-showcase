@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import VideoModal from "@/components/VideoModal";
-import { videos } from "@/lib/data";
+import { fetchVideos, isApiConfigured } from "@/lib/api";
+import { fallbackVideos, type Video } from "@/lib/data";
 import { Play, Clock, Calendar } from "lucide-react";
 
 const videoCategories = ["all", "highlight", "training", "spotlight"] as const;
@@ -10,6 +11,13 @@ const videoCategories = ["all", "highlight", "training", "spotlight"] as const;
 const Videos = () => {
   const [filter, setFilter] = useState<string>("all");
   const [activeVideo, setActiveVideo] = useState<string | null>(null);
+  const [videos, setVideos] = useState<Video[]>(fallbackVideos);
+
+  useEffect(() => {
+    if (isApiConfigured()) {
+      fetchVideos().then(setVideos).catch(() => setVideos(fallbackVideos));
+    }
+  }, []);
 
   const filtered = filter === "all" ? videos : videos.filter((v) => v.category === filter);
 
@@ -25,34 +33,18 @@ const Videos = () => {
 
           <div className="flex justify-center gap-3 mb-12 flex-wrap">
             {videoCategories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setFilter(cat)}
+              <button key={cat} onClick={() => setFilter(cat)}
                 className={`px-5 py-2 rounded-full text-sm font-semibold uppercase tracking-wider transition-colors ${
-                  filter === cat
-                    ? "bg-gradient-primary text-primary-foreground"
-                    : "bg-secondary text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {cat}
-              </button>
+                  filter === cat ? "bg-gradient-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground"
+                }`}>{cat}</button>
             ))}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {filtered.map((video) => (
-              <button
-                key={video.id}
-                onClick={() => setActiveVideo(video.videoUrl)}
-                className="group text-left bg-card rounded-xl overflow-hidden shadow-card hover:shadow-glow transition-shadow"
-              >
+              <button key={video.id} onClick={() => setActiveVideo(video.videoUrl)} className="group text-left bg-card rounded-xl overflow-hidden shadow-card hover:shadow-glow transition-shadow">
                 <div className="relative aspect-video overflow-hidden">
-                  <img
-                    src={video.thumbnail}
-                    alt={video.title}
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                    loading="lazy"
-                  />
+                  <img src={video.thumbnail} alt={video.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" loading="lazy" />
                   <div className="absolute inset-0 flex items-center justify-center bg-background/30 group-hover:bg-background/50 transition-colors">
                     <div className="w-14 h-14 bg-gradient-primary rounded-full flex items-center justify-center shadow-glow group-hover:scale-110 transition-transform">
                       <Play size={24} className="text-primary-foreground ml-1" fill="currentColor" />
@@ -71,11 +63,7 @@ const Videos = () => {
           </div>
         </div>
       </div>
-
-      {activeVideo && (
-        <VideoModal videoUrl={activeVideo} onClose={() => setActiveVideo(null)} />
-      )}
-
+      {activeVideo && <VideoModal videoUrl={activeVideo} onClose={() => setActiveVideo(null)} />}
       <Footer />
     </div>
   );
