@@ -1,10 +1,20 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { players } from "@/lib/data";
+import { fetchPlayers, isApiConfigured } from "@/lib/api";
+import { fallbackPlayers, type Player } from "@/lib/data";
 import { Star } from "lucide-react";
 
 const Players = () => {
+  const [players, setPlayers] = useState<Player[]>(fallbackPlayers);
+
+  useEffect(() => {
+    if (isApiConfigured()) {
+      fetchPlayers().then(setPlayers).catch(() => setPlayers(fallbackPlayers));
+    }
+  }, []);
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
@@ -17,35 +27,21 @@ const Players = () => {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
             {players.map((player) => (
-              <Link
-                key={player.id}
-                to={`/players/${player.id}`}
-                className="group relative overflow-hidden rounded-xl shadow-card hover:shadow-glow transition-shadow"
-              >
+              <Link key={player.id} to={`/players/${player.id}`} className="group relative overflow-hidden rounded-xl shadow-card hover:shadow-glow transition-shadow">
                 <div className="aspect-[3/4] overflow-hidden">
-                  <img
-                    src={player.image}
-                    alt={player.name}
-                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-                    loading="lazy"
-                  />
+                  <img src={player.image} alt={player.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" loading="lazy" />
                 </div>
                 <div className="absolute inset-0 bg-gradient-card" />
                 <div className="absolute bottom-0 left-0 right-0 p-6">
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="bg-gradient-primary text-primary-foreground px-3 py-1 rounded-full text-xs font-semibold">
-                      #{player.jersey}
-                    </span>
+                    <span className="bg-gradient-primary text-primary-foreground px-3 py-1 rounded-full text-xs font-semibold">#{player.jersey}</span>
                     <span className="text-accent text-xs font-semibold uppercase">{player.position}</span>
                   </div>
                   <h3 className="font-display text-2xl font-bold text-foreground uppercase">{player.name}</h3>
                   <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
                     <span>{player.stats.goals} Goals</span>
                     <span>{player.stats.assists} Assists</span>
-                    <span className="flex items-center gap-1">
-                      <Star size={14} className="text-accent" fill="currentColor" />
-                      {player.stats.rating}
-                    </span>
+                    <span className="flex items-center gap-1"><Star size={14} className="text-accent" fill="currentColor" />{player.stats.rating}</span>
                   </div>
                 </div>
               </Link>
