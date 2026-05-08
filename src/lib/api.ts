@@ -1,155 +1,121 @@
-import { Player, GalleryItem, Video } from "./data";
+// Google Apps Script API client for ATYRAU OIL REFINERY ANPZ LLP
+import {
+  Candle, StockQuote, User, Transaction, Withdrawal, Dividend, Announcement, AdminLog,
+} from "./types";
+import { generateCandles, mockTicker, mockAnnouncements } from "./mock";
 
-// The Apps Script Web App URL — set this in the app's config page
-const getApiUrl = (): string => {
-  return localStorage.getItem("naija_api_url") || "";
+const API_KEY = "anpz_api_url";
+const TOKEN_KEY = "anpz_token";
+const USER_KEY = "anpz_user";
+
+export const getApiUrl = () => localStorage.getItem(API_KEY) || "";
+export const setApiUrl = (url: string) => localStorage.setItem(API_KEY, url.trim());
+export const isApiConfigured = () => !!getApiUrl();
+export const getToken = () => localStorage.getItem(TOKEN_KEY);
+export const getStoredUser = (): User | null => {
+  const raw = localStorage.getItem(USER_KEY);
+  return raw ? (JSON.parse(raw) as User) : null;
+};
+const setSession = (token: string, user: User) => {
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
+};
+export const clearSession = () => {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
 };
 
-const getToken = (): string | null => {
-  return localStorage.getItem("naija_admin_token");
-};
-
-// ---- Generic Fetch Helpers ----
-
-async function apiGet<T>(action: string): Promise<T> {
+async function apiGet<T>(action: string, params: Record<string, string> = {}): Promise<T> {
   const url = getApiUrl();
-  if (!url) throw new Error("API URL not configured. Go to Admin → Settings.");
-  const res = await fetch(`${url}?action=${action}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!url) throw new Error("API_NOT_CONFIGURED");
+  const qs = new URLSearchParams({ action, ...params }).toString();
+  const res = await fetch(`${url}?${qs}`);
   const json = await res.json();
   if (!json.success) throw new Error(json.error || "API error");
-  return json.data;
+  return json.data as T;
 }
 
 async function apiPost<T>(body: Record<string, unknown>): Promise<T> {
   const url = getApiUrl();
-  if (!url) throw new Error("API URL not configured. Go to Admin → Settings.");
-  const token = getToken();
+  if (!url) throw new Error("API_NOT_CONFIGURED");
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "text/plain" }, // Apps Script requires text/plain to avoid CORS preflight
-    body: JSON.stringify({ ...body, token }),
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ ...body, token: getToken() }),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = await res.json();
   if (!json.success && json.error) throw new Error(json.error);
   return json as T;
 }
 
-// ---- Public API ----
-
-export async function fetchPlayers(): Promise<Player[]> {
-  return apiGet<Player[]>("getPlayers");
+// Public — fall back to mock if backend not configured
+export async function fetchCandles(symbol = "ANPZ"): Promise<Candle[]> {
+  try { return await apiGet<Candle[]>("getCandlestickData", { symbol }); }
+  catch { return generateCandles(220, 142.5, symbol.length + 7); }
 }
 
-export async function fetchGallery(): Promise<GalleryItem[]> {
-  return apiGet<GalleryItem[]>("getGallery");
+export async function fetchStockPrices(): Promise<StockQuote[]> {
+  try { return await apiGet<StockQuote[]>("getStockPrices"); }
+  catch { return mockTicker; }
 }
 
-export async function fetchVideos(): Promise<Video[]> {
-  return apiGet<Video[]>("getVideos");
+export async function fetchAnnouncements(): Promise<Announcement[]> {
+  try { return await apiGet<Announcement[]>("getAnnouncements"); }
+  catch { return mockAnnouncements; }
 }
 
-// ---- Auth ----
-
-export async function loginAdmin(username: string, password: string): Promise<{ token: string; username: string }> {
-  const res = await apiPost<{ success: boolean; token: string; username: string; error?: string }>({
-    action: "login",
-    username,
-    password,
+// Auth
+export async function login(email: string, password: string): Promise<User> {
+  const res = await apiPost<{ success: boolean; token: string; user: User }>({
+    action: "login", email, password,
   });
-  if (res.token) {
-    localStorage.setItem("naija_admin_token", res.token);
-    localStorage.setItem("naija_admin_user", res.username);
-  }
-  return res;
+  setSession(res.token, res.user);
+  return res.user;
 }
 
-export async function logoutAdmin(): Promise<void> {
-  try {
-    await apiPost({ action: "logout" });
-  } finally {
-    localStorage.removeItem("naija_admin_token");
-    localStorage.removeItem("naija_admin_user");
-  }
-}
-
-export function isLoggedIn(): boolean {
-  return !!getToken();
-}
-
-export function getAdminUser(): string | null {
-  return localStorage.getItem("naija_admin_user");
-}
-
-// ---- Admin CRUD ----
-
-export async function addPlayer(data: Record<string, unknown>): Promise<{ id: string }> {
-  return apiPost({ action: "addPlayer", data });
-}
-
-export async function updatePlayer(id: string, data: Record<string, unknown>): Promise<{ success: boolean }> {
-  return apiPost({ action: "updatePlayer", id, data });
-}
-
-export async function deletePlayer(id: string): Promise<{ success: boolean }> {
-  return apiPost({ action: "deletePlayer", id });
-}
-
-export async function addGalleryItem(data: Record<string, unknown>): Promise<{ id: string }> {
-  return apiPost({ action: "addGalleryItem", data });
-}
-
-export async function deleteGalleryItem(id: string): Promise<{ success: boolean }> {
-  return apiPost({ action: "deleteGalleryItem", id });
-}
-
-export async function addVideo(data: Record<string, unknown>): Promise<{ id: string }> {
-  return apiPost({ action: "addVideo", data });
-}
-
-export async function deleteVideo(id: string): Promise<{ success: boolean }> {
-  return apiPost({ action: "deleteVideo", id });
-}
-
-// ---- File Upload ----
-
-export async function uploadFile(file: File): Promise<{ url: string; fileId: string; previewUrl: string }> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const base64 = (reader.result as string).split(",")[1];
-        const result = await apiPost<{ url: string; fileId: string; previewUrl: string }>({
-          action: "uploadFile",
-          fileData: base64,
-          fileName: file.name,
-          mimeType: file.type,
-        });
-        resolve(result);
-      } catch (e) {
-        reject(e);
-      }
-    };
-    reader.onerror = () => reject(new Error("File read failed"));
-    reader.readAsDataURL(file);
+export async function register(name: string, email: string, password: string): Promise<User> {
+  const res = await apiPost<{ success: boolean; token: string; user: User }>({
+    action: "register", name, email, password,
   });
+  setSession(res.token, res.user);
+  return res.user;
 }
 
-export async function deleteFile(fileId: string): Promise<{ success: boolean }> {
-  return apiPost({ action: "deleteFile", fileId });
+export async function logout(): Promise<void> {
+  try { await apiPost({ action: "logout" }); } catch { /* ignore */ }
+  clearSession();
 }
 
-// ---- Config ----
+// Investor
+export const fetchPortfolio = () => apiGet<User>("getPortfolio");
+export const fetchTransactions = () => apiGet<Transaction[]>("getTransactions");
+export const fetchDividends = () => apiGet<Dividend[]>("getDividends");
+export const requestWithdrawal = (amount: number, method: string) =>
+  apiPost({ action: "requestWithdrawal", amount, method });
+export const placeOrder = (side: "buy" | "sell", amount: number, price: number) =>
+  apiPost({ action: "placeOrder", side, amount, price });
 
-export function getApiUrlConfig(): string {
-  return getApiUrl();
-}
-
-export function setApiUrl(url: string): void {
-  localStorage.setItem("naija_api_url", url.trim());
-}
-
-export function isApiConfigured(): boolean {
-  return !!getApiUrl();
-}
+// Admin
+export const adminGetUsers = () => apiGet<User[]>("getAllUsers");
+export const adminGetWithdrawals = () => apiGet<Withdrawal[]>("getAllWithdrawals");
+export const adminGetLogs = () => apiGet<AdminLog[]>("getAdminLogs");
+export const adminAdjustBalance = (userId: string, delta: number, note: string) =>
+  apiPost({ action: "adjustBalance", userId, delta, note });
+export const adminEditPortfolio = (userId: string, fields: Partial<User>) =>
+  apiPost({ action: "editPortfolio", userId, fields });
+export const adminApproveWithdrawal = (id: string) =>
+  apiPost({ action: "approveWithdrawal", id });
+export const adminRejectWithdrawal = (id: string) =>
+  apiPost({ action: "rejectWithdrawal", id });
+export const adminCreateTransaction = (userId: string, type: string, amount: number, note: string) =>
+  apiPost({ action: "createTransaction", userId, type, amount, note });
+export const adminFreeze = (userId: string, frozen: boolean) =>
+  apiPost({ action: frozen ? "freezeAccount" : "unfreezeAccount", userId });
+export const adminPushCandle = (symbol: string, candle: Candle) =>
+  apiPost({ action: "pushCandle", symbol, candle });
+export const adminSimulateMarket = (symbol: string, direction: "up" | "down", magnitude: number) =>
+  apiPost({ action: "simulateMarket", symbol, direction, magnitude });
+export const adminSetDividend = (userId: string, amount: number, period: string) =>
+  apiPost({ action: "setDividend", userId, amount, period });
+export const adminSetAnnouncement = (data: Partial<Announcement>) =>
+  apiPost({ action: "setAnnouncement", data });

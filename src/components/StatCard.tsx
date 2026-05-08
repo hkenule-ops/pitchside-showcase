@@ -1,15 +1,37 @@
-interface StatCardProps {
+import { motion } from "framer-motion";
+import { ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { ReactNode } from "react";
+
+interface Props {
   label: string;
-  value: string | number;
-  icon?: React.ReactNode;
+  value: string;
+  change?: number;
+  icon?: ReactNode;
+  delay?: number;
 }
 
-const StatCard = ({ label, value, icon }: StatCardProps) => (
-  <div className="bg-card border border-border rounded-xl p-6 text-center shadow-card hover:shadow-glow transition-shadow">
-    {icon && <div className="text-primary mb-2 flex justify-center">{icon}</div>}
-    <div className="font-display text-3xl font-bold text-foreground">{value}</div>
-    <div className="text-muted-foreground text-sm uppercase tracking-wider mt-1">{label}</div>
-  </div>
-);
+const StatCard = ({ label, value, change, icon, delay = 0 }: Props) => {
+  const up = (change ?? 0) >= 0;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay }}
+      className="glass glass-hover rounded-xl p-5"
+    >
+      <div className="flex items-start justify-between mb-3">
+        <span className="text-xs uppercase tracking-wider text-muted-foreground">{label}</span>
+        {icon && <div className="text-primary">{icon}</div>}
+      </div>
+      <div className="font-mono text-2xl font-semibold tabular">{value}</div>
+      {change !== undefined && (
+        <div className={`mt-1 flex items-center gap-1 text-xs font-mono ${up ? "text-bull" : "text-bear"}`}>
+          {up ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+          {up ? "+" : ""}{change.toFixed(2)}%
+        </div>
+      )}
+    </motion.div>
+  );
+};
 
 export default StatCard;

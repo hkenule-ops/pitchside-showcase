@@ -1,59 +1,54 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
-import { isLoggedIn, getAdminUser, loginAdmin, logoutAdmin } from "@/lib/api";
+import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { User } from "@/lib/types";
+import * as api from "@/lib/api";
 
-interface AuthContextType {
-  isAuthenticated: boolean;
-  username: string | null;
-  login: (username: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
+interface AuthCtx {
+  user: User | null;
   loading: boolean;
-  error: string | null;
+  login: (email: string, password: string) => Promise<User>;
+  register: (name: string, email: string, password: string) => Promise<User>;
+  logout: () => Promise<void>;
+  refresh: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | null>(null);
-
-export const useAuth = () => {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be inside AuthProvider");
-  return ctx;
-};
+const Ctx = createContext<AuthCtx | null>(null);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(isLoggedIn());
-  const [username, setUsername] = useState(getAdminUser());
+  const [user, setUser] = useState<User | null>(api.getStoredUser());
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    setIsAuthenticated(isLoggedIn());
-    setUsername(getAdminUser());
-  }, []);
-
-  const login = async (user: string, pass: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await loginAdmin(user, pass);
-      setIsAuthenticated(true);
-      setUsername(res.username);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Login failed";
-      setError(msg);
-      throw e;
-    } finally {
-      setLoading(false);
-    }
+  const login = async (email: string, password: string) => {
+    const u = await api.login(email, password);
+    setUser(u);
+    return u;
   };
-
+  const register = async (name: string, email: string, password: string) => {
+    const u = await api.register(name, email, password);
+    setUser(u);
+    return u;
+  };
   const logout = async () => {
-    await logoutAdmin();
-    setIsAuthenticated(false);
-    setUsername(null);
+    await api.logout();
+    setUser(null);
+  };
+  const refresh = async () => {
+    if (!api.getToken()) return;
+    setLoading(true);
+    try {
+      const fresh = await api.fetchPortfolio();
+      setUser(fresh);
+      localStorage.setItem("anpz_user", JSON.stringify(fresh));
+    } catch { /* ignore — keep cached */ }
+    finally { setLoading(false); }
   };
 
-  return (
-    <AuthContext.Provider value={{ isAuthenticated, username, login, logout, loading, error }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, []);
+
+  return <Ctx.Provider value={{ user, loading, login, register, logout, refresh }}>{children}</Ctx.Provider>;
+};
+
+export const useAuth = () => {
+  const v = useContext(Ctx);
+  if (!v) throw new Error("useAuth must be inside AuthProvider");
+  return v;
 };
