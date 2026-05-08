@@ -1,509 +1,255 @@
-import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
 import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
-import { useAuth } from "@/hooks/useAuth";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  fetchPlayers, fetchGallery, fetchVideos,
-  addPlayer, updatePlayer, deletePlayer as apiDeletePlayer,
-  addGalleryItem, deleteGalleryItem,
-  addVideo, deleteVideo as apiDeleteVideo,
-  uploadFile, isApiConfigured, getApiUrlConfig, setApiUrl,
+  adminGetUsers, adminGetWithdrawals, adminGetLogs, adminAdjustBalance, adminEditPortfolio,
+  adminApproveWithdrawal, adminRejectWithdrawal, adminCreateTransaction, adminFreeze,
+  adminSimulateMarket, adminSetDividend, adminSetAnnouncement, getApiUrl, setApiUrl, isApiConfigured,
 } from "@/lib/api";
-import { fallbackPlayers, fallbackGallery, fallbackVideos, type Player, type GalleryItem, type Video } from "@/lib/data";
-import { Plus, Trash2, Edit, Save, X, Users, LayoutGrid, Film, LogOut, Settings, Upload, Loader2 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-
-type Tab = "players" | "gallery" | "videos" | "settings";
+import { User, Withdrawal, AdminLog } from "@/lib/types";
+import { toast } from "sonner";
+import { useAuth } from "@/hooks/useAuth";
+import { Snowflake, Check, X, Plus } from "lucide-react";
 
 const Admin = () => {
-  const { isAuthenticated, username, logout } = useAuth();
-  const navigate = useNavigate();
-  const { toast } = useToast();
+  const { user } = useAuth();
+  const [users, setUsers] = useState<User[]>([]);
+  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  const [logs, setLogs] = useState<AdminLog[]>([]);
+  const [api, setApi] = useState(getApiUrl());
 
-  const [tab, setTab] = useState<Tab>("players");
-  const [playersData, setPlayersData] = useState<Player[]>([]);
-  const [galleryData, setGalleryData] = useState<GalleryItem[]>([]);
-  const [videosData, setVideosData] = useState<Video[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
-  const [showPlayerForm, setShowPlayerForm] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [apiUrlInput, setApiUrlInput] = useState(getApiUrlConfig());
-
-  // Player form state
-  const [form, setForm] = useState({
-    name: "", position: "Forward", age: 18, jersey: 0,
-    image: "", videoUrl: "", resumeUrl: "", bio: "",
-    goals: 0, assists: 0, appearances: 0, rating: 0,
-    imageUrls: "",
-  });
-
-  useEffect(() => {
-    if (!isAuthenticated) {
-      navigate("/admin/login");
-    }
-  }, [isAuthenticated, navigate]);
-
-  const loadData = useCallback(async () => {
-    if (!isApiConfigured()) {
-      setPlayersData(fallbackPlayers);
-      setGalleryData(fallbackGallery);
-      setVideosData(fallbackVideos);
-      return;
-    }
-    setLoading(true);
+  const refresh = async () => {
+    if (!isApiConfigured()) return;
     try {
-      const [p, g, v] = await Promise.all([fetchPlayers(), fetchGallery(), fetchVideos()]);
-      setPlayersData(p);
-      setGalleryData(g);
-      setVideosData(v);
-    } catch (e) {
-      toast({ title: "Error loading data", description: e instanceof Error ? e.message : "Unknown error", variant: "destructive" });
-      setPlayersData(fallbackPlayers);
-      setGalleryData(fallbackGallery);
-      setVideosData(fallbackVideos);
-    } finally {
-      setLoading(false);
-    }
-  }, [toast]);
-
-  useEffect(() => { loadData(); }, [loadData]);
-
-  const resetForm = () => {
-    setForm({ name: "", position: "Forward", age: 18, jersey: 0, image: "", videoUrl: "", resumeUrl: "", bio: "", goals: 0, assists: 0, appearances: 0, rating: 0, imageUrls: "" });
-    setEditingPlayer(null);
-    setShowPlayerForm(false);
+      const [u, w, l] = await Promise.all([adminGetUsers(), adminGetWithdrawals(), adminGetLogs()]);
+      setUsers(u); setWithdrawals(w); setLogs(l);
+    } catch (e) { toast.error((e as Error).message); }
   };
+  useEffect(() => { refresh(); }, []);
 
-  const editPlayerFn = (player: Player) => {
-    setForm({
-      name: player.name, position: player.position, age: player.age, jersey: player.jersey,
-      image: player.image, videoUrl: player.videoUrl || "", resumeUrl: player.resumeUrl || "",
-      bio: player.bio, goals: player.stats.goals, assists: player.stats.assists,
-      appearances: player.stats.appearances, rating: player.stats.rating,
-      imageUrls: player.images.join("\n"),
-    });
-    setEditingPlayer(player);
-    setShowPlayerForm(true);
-  };
+  const saveApi = () => { setApiUrl(api); toast.success("API URL saved"); refresh(); };
 
-  const savePlayer = async () => {
-    const data = {
-      name: form.name, position: form.position, age: form.age, jersey: form.jersey,
-      image: form.image, images: form.imageUrls.split("\n").filter(Boolean),
-      videoUrl: form.videoUrl, resumeUrl: form.resumeUrl, bio: form.bio, featured: true,
-      goals: form.goals, assists: form.assists, appearances: form.appearances, rating: form.rating,
-    };
-    try {
-      if (isApiConfigured()) {
-        if (editingPlayer) {
-          await updatePlayer(editingPlayer.id, data);
-        } else {
-          await addPlayer(data);
-        }
-        toast({ title: "Player saved!" });
-        loadData();
-      } else {
-        // Local fallback
-        const playerObj: Player = {
-          id: editingPlayer?.id || Date.now().toString(),
-          ...data,
-          stats: { goals: data.goals, assists: data.assists, appearances: data.appearances, rating: data.rating },
-        };
-        if (editingPlayer) {
-          setPlayersData(playersData.map((p) => p.id === editingPlayer.id ? playerObj : p));
-        } else {
-          setPlayersData([...playersData, playerObj]);
-        }
-      }
-    } catch (e) {
-      toast({ title: "Error saving player", description: e instanceof Error ? e.message : "", variant: "destructive" });
-    }
-    resetForm();
-  };
-
-  const handleDeletePlayer = async (id: string) => {
-    try {
-      if (isApiConfigured()) {
-        await apiDeletePlayer(id);
-        loadData();
-      } else {
-        setPlayersData(playersData.filter((p) => p.id !== id));
-      }
-      toast({ title: "Player deleted" });
-    } catch (e) {
-      toast({ title: "Error", description: e instanceof Error ? e.message : "", variant: "destructive" });
-    }
-  };
-
-  // Gallery form
-  const [galleryForm, setGalleryForm] = useState({ src: "", title: "", category: "training" as GalleryItem["category"] });
-  const [showGalleryForm, setShowGalleryForm] = useState(false);
-
-  const handleAddGallery = async () => {
-    try {
-      if (isApiConfigured()) {
-        await addGalleryItem({ ...galleryForm, type: "image" });
-        loadData();
-      } else {
-        setGalleryData([...galleryData, { id: Date.now().toString(), ...galleryForm, type: "image" }]);
-      }
-      setGalleryForm({ src: "", title: "", category: "training" });
-      setShowGalleryForm(false);
-      toast({ title: "Gallery item added!" });
-    } catch (e) {
-      toast({ title: "Error", description: e instanceof Error ? e.message : "", variant: "destructive" });
-    }
-  };
-
-  const handleDeleteGallery = async (id: string) => {
-    try {
-      if (isApiConfigured()) {
-        await deleteGalleryItem(id);
-        loadData();
-      } else {
-        setGalleryData(galleryData.filter((g) => g.id !== id));
-      }
-    } catch (e) {
-      toast({ title: "Error", description: e instanceof Error ? e.message : "", variant: "destructive" });
-    }
-  };
-
-  // Video form
-  const [videoForm, setVideoForm] = useState({ title: "", thumbnail: "", videoUrl: "", category: "highlight" as Video["category"], duration: "", date: "" });
-  const [showVideoForm, setShowVideoForm] = useState(false);
-
-  const handleAddVideo = async () => {
-    try {
-      if (isApiConfigured()) {
-        await addVideo(videoForm);
-        loadData();
-      } else {
-        setVideosData([...videosData, { id: Date.now().toString(), ...videoForm }]);
-      }
-      setVideoForm({ title: "", thumbnail: "", videoUrl: "", category: "highlight", duration: "", date: "" });
-      setShowVideoForm(false);
-      toast({ title: "Video added!" });
-    } catch (e) {
-      toast({ title: "Error", description: e instanceof Error ? e.message : "", variant: "destructive" });
-    }
-  };
-
-  const handleDeleteVideo = async (id: string) => {
-    try {
-      if (isApiConfigured()) {
-        await apiDeleteVideo(id);
-        loadData();
-      } else {
-        setVideosData(videosData.filter((v) => v.id !== id));
-      }
-    } catch (e) {
-      toast({ title: "Error", description: e instanceof Error ? e.message : "", variant: "destructive" });
-    }
-  };
-
-  // File upload helper
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, callback: (url: string) => void) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!isApiConfigured()) {
-      toast({ title: "Configure API first", description: "Go to Settings tab to set your Apps Script URL", variant: "destructive" });
-      return;
-    }
-    setUploading(true);
-    try {
-      const result = await uploadFile(file);
-      callback(result.url);
-      toast({ title: "File uploaded!" });
-    } catch (err) {
-      toast({ title: "Upload failed", description: err instanceof Error ? err.message : "", variant: "destructive" });
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleSaveApiUrl = () => {
-    setApiUrl(apiUrlInput);
-    toast({ title: "API URL saved!", description: "Data will now load from your Google Sheet" });
-    loadData();
-  };
-
-  const handleLogout = async () => {
-    await logout();
-    navigate("/admin/login");
-  };
-
-  if (!isAuthenticated) return null;
-
-  const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
-    { key: "players", label: "Players", icon: <Users size={18} /> },
-    { key: "gallery", label: "Gallery", icon: <LayoutGrid size={18} /> },
-    { key: "videos", label: "Videos", icon: <Film size={18} /> },
-    { key: "settings", label: "Settings", icon: <Settings size={18} /> },
-  ];
-
-  const inputCls = "w-full bg-secondary text-foreground rounded-lg px-4 py-3 text-sm border border-border focus:border-primary outline-none transition-colors";
-
-  return (
-    <div className="min-h-screen bg-background">
-      <Navbar />
-      <div className="pt-24 pb-20 px-4">
-        <div className="container mx-auto max-w-5xl">
-          <div className="flex items-center justify-between mb-10">
-            <h1 className="font-display text-4xl md:text-5xl font-bold uppercase tracking-wider">
-              <span className="text-gradient-primary">Admin</span> Panel
-            </h1>
-            <div className="flex items-center gap-4">
-              <span className="text-muted-foreground text-sm hidden sm:block">Hi, {username}</span>
-              <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 bg-secondary text-muted-foreground rounded-lg text-sm hover:text-foreground transition-colors">
-                <LogOut size={16} /> Logout
-              </button>
+  if (!user || user.role !== "admin") {
+    return (
+      <div className="min-h-screen">
+        <Navbar />
+        <div className="container pt-28 pb-16">
+          <div className="glass rounded-2xl p-8 max-w-xl">
+            <h1 className="font-display text-2xl font-bold mb-2">Admin Access Required</h1>
+            <p className="text-muted-foreground mb-4">Sign in with an admin account to manage the platform.</p>
+            <div className="space-y-3 border-t border-border pt-4">
+              <h2 className="font-display font-semibold">Backend Setup</h2>
+              <label className="text-xs text-muted-foreground">Google Apps Script Web App URL</label>
+              <Input value={api} onChange={(e) => setApi(e.target.value)} placeholder="https://script.google.com/macros/s/.../exec" />
+              <Button onClick={saveApi} className="bg-gradient-gold text-primary-foreground">Save</Button>
+              <p className="text-xs text-muted-foreground">After saving, log in as the admin user defined in your Apps Script Users sheet (role=admin).</p>
             </div>
           </div>
-
-          {loading && (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="animate-spin text-primary" size={32} />
-            </div>
-          )}
-
-          {!isApiConfigured() && (
-            <div className="bg-accent/10 border border-accent/30 rounded-xl p-4 mb-8 text-sm text-accent">
-              ⚠️ Google Apps Script URL not configured. Using demo data. Go to <button onClick={() => setTab("settings")} className="underline font-bold">Settings</button> to connect your backend.
-            </div>
-          )}
-
-          {/* Tabs */}
-          <div className="flex gap-2 mb-8 justify-center flex-wrap">
-            {tabs.map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                className={`flex items-center gap-2 px-6 py-3 rounded-lg text-sm font-semibold uppercase tracking-wider transition-colors ${
-                  tab === t.key ? "bg-gradient-primary text-primary-foreground" : "bg-card text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {t.icon} {t.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Settings Tab */}
-          {tab === "settings" && (
-            <div className="bg-card border border-border rounded-xl p-8 max-w-2xl mx-auto">
-              <h2 className="font-display text-2xl font-bold text-foreground uppercase mb-6">Backend Configuration</h2>
-              <p className="text-muted-foreground text-sm mb-6">
-                Paste your deployed Google Apps Script Web App URL below. This connects the admin panel to your Google Sheet database and Google Drive storage.
-              </p>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2">Apps Script Web App URL</label>
-                  <input
-                    value={apiUrlInput}
-                    onChange={(e) => setApiUrlInput(e.target.value)}
-                    placeholder="https://script.google.com/macros/s/YOUR_ID/exec"
-                    className={inputCls}
-                  />
-                </div>
-                <button onClick={handleSaveApiUrl} className="flex items-center gap-2 px-6 py-3 bg-gradient-primary text-primary-foreground rounded-lg text-sm font-semibold">
-                  <Save size={16} /> Save & Connect
-                </button>
-              </div>
-              <div className="mt-8 border-t border-border pt-6">
-                <h3 className="font-display text-lg font-bold text-foreground uppercase mb-3">Setup Guide</h3>
-                <ol className="text-muted-foreground text-sm space-y-2 list-decimal list-inside">
-                  <li>Create a Google Sheet with tabs: Players, Gallery, Videos, Admins</li>
-                  <li>Go to script.google.com and create a new project</li>
-                  <li>Copy the Code.gs file from the <code className="text-primary">google-apps-script</code> folder</li>
-                  <li>Replace SPREADSHEET_ID and DRIVE_FOLDER_ID</li>
-                  <li>Deploy as Web App (Execute as: Me, Access: Anyone)</li>
-                  <li>Paste the URL above</li>
-                </ol>
-              </div>
-            </div>
-          )}
-
-          {/* Players Tab */}
-          {tab === "players" && !loading && (
-            <div>
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="font-display text-2xl font-bold text-foreground uppercase">Manage Players</h2>
-                <button onClick={() => { resetForm(); setShowPlayerForm(true); }} className="flex items-center gap-2 px-4 py-2 bg-gradient-primary text-primary-foreground rounded-lg text-sm font-semibold">
-                  <Plus size={16} /> Add Player
-                </button>
-              </div>
-
-              {showPlayerForm && (
-                <div className="bg-card border border-border rounded-xl p-6 mb-6">
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-display text-lg font-bold text-foreground uppercase">{editingPlayer ? "Edit Player" : "New Player"}</h3>
-                    <button onClick={resetForm} className="text-muted-foreground hover:text-foreground"><X size={20} /></button>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputCls} />
-                    <select value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} className={inputCls}>
-                      <option>Forward</option><option>Midfielder</option><option>Defender</option><option>Goalkeeper</option>
-                    </select>
-                    <input type="number" placeholder="Age" value={form.age} onChange={(e) => setForm({ ...form, age: +e.target.value })} className={inputCls} />
-                    <input type="number" placeholder="Jersey #" value={form.jersey} onChange={(e) => setForm({ ...form, jersey: +e.target.value })} className={inputCls} />
-                    <div className="md:col-span-2">
-                      <div className="flex gap-2">
-                        <input placeholder="Profile Image URL (or upload)" value={form.image} onChange={(e) => setForm({ ...form, image: e.target.value })} className={inputCls} />
-                        <label className="flex items-center gap-1 px-4 py-2 bg-secondary text-muted-foreground rounded-lg text-sm cursor-pointer hover:text-foreground transition-colors shrink-0">
-                          {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-                          <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, (url) => setForm({ ...form, image: url }))} />
-                        </label>
-                      </div>
-                    </div>
-                    <input placeholder="Video URL (YouTube embed)" value={form.videoUrl} onChange={(e) => setForm({ ...form, videoUrl: e.target.value })} className={inputCls} />
-                    <input placeholder="Resume URL (Google Drive preview link)" value={form.resumeUrl} onChange={(e) => setForm({ ...form, resumeUrl: e.target.value })} className={inputCls} />
-                    <div className="grid grid-cols-4 gap-2 md:col-span-2">
-                      <input type="number" placeholder="Goals" value={form.goals} onChange={(e) => setForm({ ...form, goals: +e.target.value })} className={inputCls} />
-                      <input type="number" placeholder="Assists" value={form.assists} onChange={(e) => setForm({ ...form, assists: +e.target.value })} className={inputCls} />
-                      <input type="number" placeholder="Apps" value={form.appearances} onChange={(e) => setForm({ ...form, appearances: +e.target.value })} className={inputCls} />
-                      <input type="number" step="0.1" placeholder="Rating" value={form.rating} onChange={(e) => setForm({ ...form, rating: +e.target.value })} className={inputCls} />
-                    </div>
-                    <textarea placeholder="Bio" value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} rows={3} className={`${inputCls} md:col-span-2`} />
-                    <textarea placeholder="Additional Image URLs (one per line, or upload via Drive)" value={form.imageUrls} onChange={(e) => setForm({ ...form, imageUrls: e.target.value })} rows={3} className={`${inputCls} md:col-span-2`} />
-                  </div>
-                  <button onClick={savePlayer} className="mt-4 flex items-center gap-2 px-6 py-3 bg-gradient-primary text-primary-foreground rounded-lg text-sm font-semibold">
-                    <Save size={16} /> Save Player
-                  </button>
-                </div>
-              )}
-
-              <div className="space-y-3">
-                {playersData.map((player) => (
-                  <div key={player.id} className="flex items-center gap-4 bg-card border border-border rounded-xl p-4">
-                    <img src={player.image} alt={player.name} className="w-14 h-14 rounded-lg object-cover" />
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-display font-bold text-foreground truncate">{player.name}</h4>
-                      <p className="text-muted-foreground text-sm">#{player.jersey} · {player.position} · Age {player.age}</p>
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                      <button onClick={() => editPlayerFn(player)} className="p-2 text-muted-foreground hover:text-primary transition-colors"><Edit size={18} /></button>
-                      <button onClick={() => handleDeletePlayer(player.id)} className="p-2 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={18} /></button>
-                    </div>
-                  </div>
-                ))}
-                {playersData.length === 0 && !loading && (
-                  <p className="text-center text-muted-foreground py-8">No players yet. Add your first player!</p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Gallery Tab */}
-          {tab === "gallery" && !loading && (
-            <div>
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="font-display text-2xl font-bold text-foreground uppercase">Manage Gallery</h2>
-                <button onClick={() => setShowGalleryForm(true)} className="flex items-center gap-2 px-4 py-2 bg-gradient-primary text-primary-foreground rounded-lg text-sm font-semibold">
-                  <Plus size={16} /> Add Image
-                </button>
-              </div>
-
-              {showGalleryForm && (
-                <div className="bg-card border border-border rounded-xl p-6 mb-6">
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-display text-lg font-bold text-foreground uppercase">Add Gallery Image</h3>
-                    <button onClick={() => setShowGalleryForm(false)} className="text-muted-foreground hover:text-foreground"><X size={20} /></button>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="flex gap-2">
-                      <input placeholder="Image URL" value={galleryForm.src} onChange={(e) => setGalleryForm({ ...galleryForm, src: e.target.value })} className={inputCls} />
-                      <label className="flex items-center gap-1 px-4 py-2 bg-secondary text-muted-foreground rounded-lg text-sm cursor-pointer hover:text-foreground transition-colors shrink-0">
-                        {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-                        <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, (url) => setGalleryForm({ ...galleryForm, src: url }))} />
-                      </label>
-                    </div>
-                    <input placeholder="Title" value={galleryForm.title} onChange={(e) => setGalleryForm({ ...galleryForm, title: e.target.value })} className={inputCls} />
-                    <select value={galleryForm.category} onChange={(e) => setGalleryForm({ ...galleryForm, category: e.target.value as GalleryItem["category"] })} className={inputCls}>
-                      <option value="training">Training</option><option value="match">Match</option><option value="team">Team</option><option value="facility">Facility</option>
-                    </select>
-                  </div>
-                  <button onClick={handleAddGallery} className="mt-4 flex items-center gap-2 px-6 py-3 bg-gradient-primary text-primary-foreground rounded-lg text-sm font-semibold">
-                    <Save size={16} /> Save
-                  </button>
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {galleryData.map((item) => (
-                  <div key={item.id} className="relative group rounded-lg overflow-hidden">
-                    <img src={item.src} alt={item.title} className="w-full aspect-square object-cover" loading="lazy" />
-                    <div className="absolute inset-0 bg-background/0 group-hover:bg-background/60 transition-colors flex items-center justify-center">
-                      <button onClick={() => handleDeleteGallery(item.id)} className="opacity-0 group-hover:opacity-100 transition-opacity p-2 bg-destructive rounded-full text-destructive-foreground">
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                    <p className="absolute bottom-0 left-0 right-0 bg-background/80 text-foreground text-xs p-2 truncate">{item.title}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Videos Tab */}
-          {tab === "videos" && !loading && (
-            <div>
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="font-display text-2xl font-bold text-foreground uppercase">Manage Videos</h2>
-                <button onClick={() => setShowVideoForm(true)} className="flex items-center gap-2 px-4 py-2 bg-gradient-primary text-primary-foreground rounded-lg text-sm font-semibold">
-                  <Plus size={16} /> Add Video
-                </button>
-              </div>
-
-              {showVideoForm && (
-                <div className="bg-card border border-border rounded-xl p-6 mb-6">
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-display text-lg font-bold text-foreground uppercase">Add Video</h3>
-                    <button onClick={() => setShowVideoForm(false)} className="text-muted-foreground hover:text-foreground"><X size={20} /></button>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <input placeholder="Title" value={videoForm.title} onChange={(e) => setVideoForm({ ...videoForm, title: e.target.value })} className={inputCls} />
-                    <div className="flex gap-2">
-                      <input placeholder="Thumbnail URL" value={videoForm.thumbnail} onChange={(e) => setVideoForm({ ...videoForm, thumbnail: e.target.value })} className={inputCls} />
-                      <label className="flex items-center gap-1 px-4 py-2 bg-secondary text-muted-foreground rounded-lg text-sm cursor-pointer hover:text-foreground transition-colors shrink-0">
-                        {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-                        <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, (url) => setVideoForm({ ...videoForm, thumbnail: url }))} />
-                      </label>
-                    </div>
-                    <input placeholder="Video URL (YouTube embed)" value={videoForm.videoUrl} onChange={(e) => setVideoForm({ ...videoForm, videoUrl: e.target.value })} className={inputCls} />
-                    <select value={videoForm.category} onChange={(e) => setVideoForm({ ...videoForm, category: e.target.value as Video["category"] })} className={inputCls}>
-                      <option value="highlight">Highlight</option><option value="training">Training</option><option value="spotlight">Spotlight</option>
-                    </select>
-                    <input placeholder="Duration (e.g., 5:30)" value={videoForm.duration} onChange={(e) => setVideoForm({ ...videoForm, duration: e.target.value })} className={inputCls} />
-                    <input type="date" value={videoForm.date} onChange={(e) => setVideoForm({ ...videoForm, date: e.target.value })} className={inputCls} />
-                  </div>
-                  <button onClick={handleAddVideo} className="mt-4 flex items-center gap-2 px-6 py-3 bg-gradient-primary text-primary-foreground rounded-lg text-sm font-semibold">
-                    <Save size={16} /> Save
-                  </button>
-                </div>
-              )}
-
-              <div className="space-y-3">
-                {videosData.map((video) => (
-                  <div key={video.id} className="flex items-center gap-4 bg-card border border-border rounded-xl p-4">
-                    <img src={video.thumbnail} alt={video.title} className="w-20 h-14 rounded-lg object-cover" />
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-display font-bold text-foreground truncate">{video.title}</h4>
-                      <p className="text-muted-foreground text-sm">{video.category} · {video.duration} · {video.date}</p>
-                    </div>
-                    <button onClick={() => handleDeleteVideo(video.id)} className="p-2 text-muted-foreground hover:text-destructive transition-colors shrink-0">
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </div>
-      <Footer />
+    );
+  }
+
+  return (
+    <div className="min-h-screen">
+      <Navbar />
+      <div className="container pt-24 pb-16">
+        <div className="text-xs tracking-[0.2em] text-primary mb-2">ADMIN CONSOLE</div>
+        <h1 className="font-display text-3xl md:text-4xl font-bold mb-6">Platform Control</h1>
+
+        <Tabs defaultValue="investors">
+          <TabsList className="glass mb-6 flex-wrap h-auto">
+            <TabsTrigger value="investors">Investors</TabsTrigger>
+            <TabsTrigger value="withdrawals">Withdrawals</TabsTrigger>
+            <TabsTrigger value="market">Market Simulation</TabsTrigger>
+            <TabsTrigger value="dividends">Dividends</TabsTrigger>
+            <TabsTrigger value="announcements">Announcements</TabsTrigger>
+            <TabsTrigger value="logs">Activity Log</TabsTrigger>
+            <TabsTrigger value="settings">Settings</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="investors"><InvestorsTab users={users} refresh={refresh} /></TabsContent>
+          <TabsContent value="withdrawals"><WithdrawalsTab list={withdrawals} refresh={refresh} /></TabsContent>
+          <TabsContent value="market"><MarketTab refresh={refresh} /></TabsContent>
+          <TabsContent value="dividends"><DividendsTab users={users} refresh={refresh} /></TabsContent>
+          <TabsContent value="announcements"><AnnouncementsTab refresh={refresh} /></TabsContent>
+          <TabsContent value="logs"><LogsTab logs={logs} /></TabsContent>
+          <TabsContent value="settings">
+            <div className="glass rounded-2xl p-6 max-w-xl">
+              <h3 className="font-display font-semibold mb-4">Apps Script URL</h3>
+              <Input value={api} onChange={(e) => setApi(e.target.value)} className="mb-3" />
+              <Button onClick={saveApi} className="bg-gradient-gold text-primary-foreground">Save</Button>
+            </div>
+          </TabsContent>
+        </Tabs>
+      </div>
     </div>
   );
 };
+
+const InvestorsTab = ({ users, refresh }: { users: User[]; refresh: () => void }) => {
+  const [edit, setEdit] = useState<Record<string, Partial<User>>>({});
+
+  const adjust = async (id: string, delta: number) => {
+    try { await adminAdjustBalance(id, delta, "Admin manual adjustment"); toast.success("Balance updated"); refresh(); }
+    catch (e) { toast.error((e as Error).message); }
+  };
+  const save = async (id: string) => {
+    try { await adminEditPortfolio(id, edit[id] || {}); toast.success("Saved"); setEdit({ ...edit, [id]: {} }); refresh(); }
+    catch (e) { toast.error((e as Error).message); }
+  };
+  const freeze = async (id: string, frozen: boolean) => {
+    try { await adminFreeze(id, frozen); toast.success(frozen ? "Frozen" : "Unfrozen"); refresh(); }
+    catch (e) { toast.error((e as Error).message); }
+  };
+
+  return (
+    <div className="glass rounded-2xl p-5 overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="text-xs text-muted-foreground border-b border-border">
+          <tr><th className="text-left py-2">Investor</th><th className="text-right">Balance</th><th className="text-right">Portfolio</th><th className="text-right">Shares</th><th className="text-right">P/L</th><th className="text-right">Status</th><th /></tr>
+        </thead>
+        <tbody>
+          {users.map((u) => (
+            <tr key={u.id} className="border-b border-border/30">
+              <td className="py-3"><div>{u.name}</div><div className="text-xs text-muted-foreground">{u.email}</div></td>
+              <td className="text-right"><Input className="w-28 text-right font-mono ml-auto" defaultValue={u.balance}
+                onChange={(e) => setEdit({ ...edit, [u.id]: { ...edit[u.id], balance: Number(e.target.value) } })} /></td>
+              <td className="text-right"><Input className="w-28 text-right font-mono ml-auto" defaultValue={u.portfolioValue}
+                onChange={(e) => setEdit({ ...edit, [u.id]: { ...edit[u.id], portfolioValue: Number(e.target.value) } })} /></td>
+              <td className="text-right"><Input className="w-20 text-right font-mono ml-auto" defaultValue={u.shares}
+                onChange={(e) => setEdit({ ...edit, [u.id]: { ...edit[u.id], shares: Number(e.target.value) } })} /></td>
+              <td className="text-right"><Input className="w-24 text-right font-mono ml-auto" defaultValue={u.profitLoss}
+                onChange={(e) => setEdit({ ...edit, [u.id]: { ...edit[u.id], profitLoss: Number(e.target.value) } })} /></td>
+              <td className="text-right text-xs"><span className={`px-2 py-0.5 rounded ${u.status === "active" ? "bg-bull/10 text-bull" : "bg-bear/10 text-bear"}`}>{u.status}</span></td>
+              <td className="text-right space-x-1 whitespace-nowrap">
+                <Button size="sm" variant="outline" onClick={() => save(u.id)}>Save</Button>
+                <Button size="sm" variant="outline" onClick={() => adjust(u.id, 100)}>+100</Button>
+                <Button size="sm" variant="outline" onClick={() => adjust(u.id, -100)}>-100</Button>
+                <Button size="sm" variant="outline" onClick={() => freeze(u.id, u.status === "active")}><Snowflake size={14} /></Button>
+              </td>
+            </tr>
+          ))}
+          {!users.length && <tr><td colSpan={7} className="py-8 text-center text-muted-foreground">No investors yet</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+const WithdrawalsTab = ({ list, refresh }: { list: Withdrawal[]; refresh: () => void }) => (
+  <div className="glass rounded-2xl p-5 overflow-x-auto">
+    <table className="w-full text-sm">
+      <thead className="text-xs text-muted-foreground border-b border-border">
+        <tr><th className="text-left py-2">Date</th><th className="text-left">Investor</th><th className="text-right">Amount</th><th className="text-left">Method</th><th className="text-right">Status</th><th /></tr>
+      </thead>
+      <tbody>
+        {list.map((w) => (
+          <tr key={w.id} className="border-b border-border/30">
+            <td className="py-3 text-xs font-mono">{new Date(w.requestedAt).toLocaleString()}</td>
+            <td>{w.userName ?? w.userId}</td>
+            <td className="text-right font-mono">${w.amount.toLocaleString()}</td>
+            <td>{w.method}</td>
+            <td className="text-right text-xs"><span className={`px-2 py-0.5 rounded ${w.status === "approved" ? "bg-bull/10 text-bull" : w.status === "rejected" ? "bg-bear/10 text-bear" : "bg-primary/10 text-primary"}`}>{w.status}</span></td>
+            <td className="text-right space-x-1">
+              {w.status === "pending" && <>
+                <Button size="sm" variant="outline" onClick={async () => { await adminApproveWithdrawal(w.id); toast.success("Approved"); refresh(); }}><Check size={14} /></Button>
+                <Button size="sm" variant="outline" onClick={async () => { await adminRejectWithdrawal(w.id); toast.success("Rejected"); refresh(); }}><X size={14} /></Button>
+              </>}
+            </td>
+          </tr>
+        ))}
+        {!list.length && <tr><td colSpan={6} className="py-8 text-center text-muted-foreground">No withdrawal requests</td></tr>}
+      </tbody>
+    </table>
+  </div>
+);
+
+const MarketTab = ({ refresh }: { refresh: () => void }) => {
+  const [symbol, setSymbol] = useState("ANPZ");
+  const [mag, setMag] = useState("2");
+  const sim = async (dir: "up" | "down") => {
+    try { await adminSimulateMarket(symbol, dir, Number(mag)); toast.success(`Pushed ${dir} ${mag}% on ${symbol}`); refresh(); }
+    catch (e) { toast.error((e as Error).message); }
+  };
+  return (
+    <div className="glass rounded-2xl p-6 max-w-xl">
+      <h3 className="font-display font-semibold mb-4">Market Simulation</h3>
+      <p className="text-sm text-muted-foreground mb-4">Push synthetic candles to control the displayed market direction. All changes are logged.</p>
+      <label className="text-xs text-muted-foreground">Symbol</label>
+      <Input value={symbol} onChange={(e) => setSymbol(e.target.value)} className="mb-3 mt-1 font-mono" />
+      <label className="text-xs text-muted-foreground">Magnitude (%)</label>
+      <Input value={mag} onChange={(e) => setMag(e.target.value)} className="mb-4 mt-1 font-mono" />
+      <div className="flex gap-2">
+        <Button className="flex-1 bg-bull text-white" onClick={() => sim("up")}>Bullish Push ▲</Button>
+        <Button className="flex-1 bg-bear text-white" onClick={() => sim("down")}>Bearish Push ▼</Button>
+      </div>
+    </div>
+  );
+};
+
+const DividendsTab = ({ users, refresh }: { users: User[]; refresh: () => void }) => {
+  const [userId, setUserId] = useState("");
+  const [amount, setAmount] = useState("");
+  const [period, setPeriod] = useState("Q1 2026");
+  const submit = async () => {
+    try { await adminSetDividend(userId, Number(amount), period); toast.success("Dividend recorded"); refresh(); }
+    catch (e) { toast.error((e as Error).message); }
+  };
+  return (
+    <div className="glass rounded-2xl p-6 max-w-xl">
+      <h3 className="font-display font-semibold mb-4">Distribute Dividend</h3>
+      <select value={userId} onChange={(e) => setUserId(e.target.value)} className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm mb-3">
+        <option value="">Select investor...</option>
+        {users.map((u) => <option key={u.id} value={u.id}>{u.name} — {u.email}</option>)}
+      </select>
+      <Input placeholder="Amount" value={amount} onChange={(e) => setAmount(e.target.value)} className="mb-3 font-mono" />
+      <Input placeholder="Period" value={period} onChange={(e) => setPeriod(e.target.value)} className="mb-4 font-mono" />
+      <Button onClick={submit} className="bg-gradient-gold text-primary-foreground"><Plus size={14} className="mr-1" /> Pay Dividend</Button>
+    </div>
+  );
+};
+
+const AnnouncementsTab = ({ refresh }: { refresh: () => void }) => {
+  const [t, setT] = useState(""); const [b, setB] = useState("");
+  const submit = async () => {
+    try { await adminSetAnnouncement({ title: t, body: b, date: new Date().toISOString(), pinned: false });
+      toast.success("Announcement published"); setT(""); setB(""); refresh(); }
+    catch (e) { toast.error((e as Error).message); }
+  };
+  return (
+    <div className="glass rounded-2xl p-6 max-w-xl">
+      <h3 className="font-display font-semibold mb-4">Publish Announcement</h3>
+      <Input placeholder="Title" value={t} onChange={(e) => setT(e.target.value)} className="mb-3" />
+      <textarea placeholder="Body" value={b} onChange={(e) => setB(e.target.value)} rows={4}
+        className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm mb-4" />
+      <Button onClick={submit} className="bg-gradient-gold text-primary-foreground">Publish</Button>
+    </div>
+  );
+};
+
+const LogsTab = ({ logs }: { logs: AdminLog[] }) => (
+  <div className="glass rounded-2xl p-5 overflow-x-auto">
+    <table className="w-full text-sm">
+      <thead className="text-xs text-muted-foreground border-b border-border">
+        <tr><th className="text-left py-2">Time</th><th className="text-left">Admin</th><th className="text-left">Action</th><th className="text-left">Target</th><th className="text-left">Before → After</th></tr>
+      </thead>
+      <tbody>
+        {logs.map((l) => (
+          <tr key={l.id} className="border-b border-border/30 align-top">
+            <td className="py-2 text-xs font-mono">{new Date(l.timestamp).toLocaleString()}</td>
+            <td className="text-xs">{l.adminUser}</td>
+            <td className="text-xs"><span className="px-2 py-0.5 rounded bg-primary/10 text-primary">{l.action}</span></td>
+            <td className="text-xs font-mono">{l.targetId}</td>
+            <td className="text-xs text-muted-foreground"><span className="text-bear">{l.before}</span> → <span className="text-bull">{l.after}</span></td>
+          </tr>
+        ))}
+        {!logs.length && <tr><td colSpan={5} className="py-8 text-center text-muted-foreground">No admin activity yet</td></tr>}
+      </tbody>
+    </table>
+  </div>
+);
 
 export default Admin;
